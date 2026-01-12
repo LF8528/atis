@@ -13,8 +13,8 @@
       "type": "image/png"
     }
   ],
-  "start_url": "/atis/",
-  "scope": "/atis/",
+  "start_url": "/ATIS/",
+  "scope": "/ATIS/",
   "display": "standalone",
   "theme_color": "#121212",
   "background_color": "#121212"
