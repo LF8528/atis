@@ -13,7 +13,7 @@
       "type": "image/png"
     }
   ],
-  "start_url": "https://lf8528.github.io/atis/",
+  "start_url": "/atis/",
   "scope": "/atis/",
   "display": "standalone",
   "theme_color": "#121212",
