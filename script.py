@@ -81,106 +81,48 @@ def scanner_notams(force_refresh=False):
             if cache_age < 300:  # 5 minutes max
                 with open(cache_file, 'r') as f:
                     cached = json.load(f)
-                    # Vérifier si la date du NOTAM est toujours valide
                     if cached["R147"]["date"]:
                         jour, mois = map(int, cached["R147"]["date"].split('/'))
                         annee = int(cached["R147"]["annee"])
                         date_notam = datetime(annee, mois, jour, tzinfo=timezone.utc)
                         if date_notam.date() >= datetime.now(timezone.utc).date():
-                            print(f"DEBUG - Utilisation cache NOTAM (valide, age: {int(cache_age/60)} min)")
                             return cached
                         else:
-                            print("DEBUG - Cache obsolète, rafraîchissement forcé")
                             os.remove(cache_file)
-        except Exception as e:
-            print(f"DEBUG - Erreur cache: {e}")
+        except: pass
 
-    print("DEBUG - Scan NOTAM en direct")
     status = {"R147": {"info": "pas d'information", "date": "", "annee": ""}}
-
     try:
-        # 1. Essayer SIA
         url = "https://www.sia.aviation-civile.gouv.fr/schedules"
-        headers = {'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html'}
+        headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=15)
         if res.status_code == 200:
-            texte = res.text
-            print(f"DEBUG - Texte brut SIA: {texte[:500]}...")
             match_r147 = re.search(
                 r'(\d{2})/(\d{2})/(\d{4}).*?R\s*147.*?(?:(\d{1,2})[h:]?(\d{2})[^\d]*(?:à|to|-)[^\d]*(\d{1,2})[h:]?(\d{2}))',
-                texte, re.IGNORECASE | re.DOTALL
+                res.text, re.IGNORECASE | re.DOTALL
             )
             if match_r147:
-                jour, mois, annee = match_r147.group(1), match_r147.group(2), match_r147.group(3)
-                h1, m1, h2, m2 = match_r147.group(4), match_r147.group(5), match_r147.group(6), match_r147.group(7)
-                status["R147"]["date"] = f"{jour}/{mois}"
-                status["R147"]["annee"] = annee
-                status["R147"]["info"] = f"active {h1.zfill(2)}h{m1}-{h2.zfill(2)}h{m2}Z"
-                print(f"DEBUG - Match R147: jour={jour}, mois={mois}, année={annee}")
+                status["R147"] = {
+                    "date": f"{match_r147.group(1)}/{match_r147.group(2)}",
+                    "annee": match_r147.group(3),
+                    "info": f"active {match_r147.group(4).zfill(2)}h{match_r147.group(5)}-{match_r147.group(6).zfill(2)}h{match_r147.group(7)}Z"
+                }
                 with open(cache_file, 'w') as f: json.dump(status, f)
                 return status
-            else:
-                print("DEBUG - Aucun match R147 sur SIA")
-    except Exception as e:
-        print(f"Err SIA: {e}")
-
-    # 2. Essayer NOTAMWEB
-    try:
-        url = "https://notamweb.aviation-civile.gouv.fr/Script/IHM/Bul_R.php?ZoneRglmt=RTBA"
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
-        if res.status_code == 200:
-            texte = res.text
-            if 'R147' in texte or 'R 147' in texte:
-                match = re.search(r'R\s*147.*?C(\d{10})/(\d{10})', texte, re.DOTALL | re.IGNORECASE)
-                if match:
-                    debut, fin = match.group(1), match.group(2)
-                    status["R147"] = {
-                        "date": f"{debut[4:6]}/{debut[2:4]}",
-                        "annee": "20"+debut[0:2],
-                        "info": f"active {debut[6:8]}:{debut[8:10]}-{fin[6:8]}:{fin[8:10]}Z"
-                    }
-                    print(f"DEBUG - Match NOTAMWEB: date={status['R147']['date']}, année={status['R147']['annee']}")
-                else:
-                    match_r147 = re.search(r'R147\s+CHARENTE\s+(\d{2})(\d{2})-(\d{2})(\d{2})', texte, re.IGNORECASE)
-                    if match_r147:
-                        pos_r147 = match_r147.start()
-                        matches_date = list(re.finditer(r'DU:\s*(\d{2})\s+(\d{2})\s+(\d{4})', texte[:pos_r147], re.IGNORECASE))
-                        if matches_date:
-                            match_date = matches_date[-1]
-                            h1, m1, h2, m2 = match_r147.group(1), match_r147.group(2), match_r147.group(3), match_r147.group(4)
-                            status["R147"] = {
-                                "date": f"{match_date.group(1)}/{match_date.group(2)}",
-                                "annee": match_date.group(3),
-                                "info": f"active {h1}:{m1}-{h2}:{m2}Z"
-                            }
-                            print(f"DEBUG - Match NOTAMWEB (fallback): date={status['R147']['date']}, année={status['R147']['annee']}")
-                if status["R147"]["info"] != "pas d'information":
-                    with open(cache_file, 'w') as f: json.dump(status, f)
-                    return status
-            else:
-                print("DEBUG - R147 non trouvé sur NOTAMWEB")
-    except Exception as e:
-        print(f"Err NOTAMWEB: {e}")
-
-    with open(cache_file, 'w') as f: json.dump(status, f)
+    except: pass
     return status
 
-
 async def generer_audio(vocal_fr, vocal_en):
-    ts = int(time.time())  # Timestamp unique
+    ts = int(time.time())
     await edge_tts.Communicate(vocal_fr, "fr-FR-HenriNeural", rate="+5%").save(f"fr_{ts}.mp3")
     await edge_tts.Communicate(vocal_en, "en-GB-ThomasNeural", rate="+10%").save(f"en_{ts}.mp3")
     with open(f"atis_{ts}.mp3", "wb") as f:
         for fname in [f"fr_{ts}.mp3", f"en_{ts}.mp3"]:
-            with open(fname, "rb") as fd:
-                f.write(fd.read())
-    # Supprimer les anciens fichiers
+            with open(fname, "rb") as fd: f.write(fd.read())
     for old_file in glob.glob("atis_*.mp3"):
-        if old_file != f"atis_{ts}.mp3":
-            os.remove(old_file)
-    os.rename(f"atis_{ts}.mp3", "atis.mp3")  # Remplace l'ancien fichier
-    for f in [f"fr_{ts}.mp3", f"en_{ts}.mp3"]:
-        os.remove(f)
+        if old_file != f"atis_{ts}.mp3": os.remove(old_file)
+    os.rename(f"atis_{ts}.mp3", "atis.mp3")
+    for f in [f"fr_{ts}.mp3", f"en_{ts}.mp3"]: os.remove(f)
 
 async def executer_veille():
     m = obtenir_donnees_moyennes()
@@ -189,6 +131,8 @@ async def executer_veille():
     if not m: return
     maintenant = datetime.now(timezone.utc)
     date_generation_courte = maintenant.strftime("%d/%m %H:%M")
+    
+    # --- MODIFICATION CAS 00h00Z ---
     notam_r147_actif = False
     if notams['R147']['date'] and notams['R147']['annee']:
         try:
@@ -196,9 +140,14 @@ async def executer_veille():
             date_notam = datetime(int(notams['R147']['annee']), int(mois), int(jour), tzinfo=timezone.utc)
             match_heure_fin = re.search(r'-(\d{2})h(\d{2})Z', notams['R147']['info'])
             if match_heure_fin:
-                heure_fin = int(match_heure_fin.group(1))
-                minute_fin = int(match_heure_fin.group(2))
-                date_notam_fin = date_notam.replace(hour=heure_fin, minute=minute_fin)
+                h_fin = int(match_heure_fin.group(1))
+                m_fin = int(match_heure_fin.group(2))
+                # Si 00h00, on considère la fin à 23:59:59 du même jour
+                if h_fin == 0 and m_fin == 0:
+                    date_notam_fin = date_notam.replace(hour=23, minute=59, second=59)
+                else:
+                    date_notam_fin = date_notam.replace(hour=h_fin, minute=m_fin)
+                
                 if date_notam.date() == maintenant.date():
                     notam_r147_actif = date_notam_fin > maintenant
                 elif date_notam.date() > maintenant.date():
@@ -207,6 +156,8 @@ async def executer_veille():
                 notam_r147_actif = True
         except: notam_r147_actif = "active" in notams['R147']['info'].lower()
     else: notam_r147_actif = "active" in notams['R147']['info'].lower()
+    # --- FIN DE MODIFICATION ---
+
     remarques_raw = os.getenv("ATIS_REMARQUES", "Piste en herbe 08/26 fermée :: Grass runway 08/26 closed")
     partie_fr, partie_en = remarques_raw.split("::") if "::" in remarques_raw else (remarques_raw, "Caution")
     liste_fr = [r.strip() for r in partie_fr.split("|")]
@@ -214,23 +165,29 @@ async def executer_veille():
     html_remarques = "".join([f'<div class="alert-line">⚠️ {r}</div>' for r in liste_fr])
     audio_remarques_fr = ". ".join(liste_fr) + "."
     audio_remarques_en = ". ".join(liste_en) + "."
+    
     notam_audio_fr = ""
     if notam_r147_actif:
         match_h = re.search(r'active (\d{2})h(\d{2})-(\d{2})h(\d{2})Z', notams['R147']['info'])
         if match_h:
             h1,m1,h2,m2 = match_h.groups()
             notam_audio_fr = f"Zone R 147 : active le {notams['R147']['date']} de {int(h1)} heures{(' '+str(int(m1))) if int(m1)>0 else ''} à {int(h2)} heures{(' '+str(int(m2))) if int(m2)>0 else ''} UTC."
+
     txt_fr = f"Luçon les Guifettes, observation de {m['heure_metar'].replace(':',' heures ')} UTC. {m['w_audio_fr']}. Température {m['t_audio_fr']} degrés. Point de rosée {m['d_audio_fr']} degrés. Q N H {m['q_audio_fr']} hectopascals. {audio_remarques_fr} {notam_audio_fr}"
+    
     notam_audio_en = ""
     if notam_r147_actif:
         match_h = re.search(r'active (\d{2})h(\d{2})-(\d{2})h(\d{2})Z', notams['R147']['info'])
         if match_h:
             h1,m1,h2,m2 = match_h.groups()
             notam_audio_en = f"Military zone R 147: active on {notams['R147']['date'].replace('/',' ')} from {int(h1)}{(' '+str(int(m1))) if int(m1)>0 else ''} to {int(h2)}{(' '+str(int(m2))) if int(m2)>0 else ''} UTC."
+
     txt_en = f"Lusson  lay  Guifettes  observation at {m['heure_metar'].replace(':',' ')} UTC. {m['w_audio_en']}. Temperature {m['t_audio_en']} degrees. Dew point {m['d_audio_en']} degrees. Q N H {m['q_audio_en']} hectopascals. {audio_remarques_en} {notam_audio_en}"
+    
     await generer_audio(txt_fr, txt_en)
     ts = int(time.time())
     prochaine = (maintenant.replace(minute=0,second=0) + timedelta(hours=1)).strftime('%H:%M')
+    
     html = f"""<!DOCTYPE html>
     <html lang="fr">
     <head>
@@ -250,22 +207,10 @@ async def executer_veille():
             <h1>ATIS LF8528</h1>
             <div class="subtitle">Luçon les Guifettes</div>
             <div class="data-grid">
-                <div class="data-item">
-                    <div class="label">Heure (UTC)</div>
-                    <div class="value">⌚ {m['heure_metar']}Z</div>
-                </div>
-                <div class="data-item">
-                    <div class="label">Vent</div>
-                    <div class="value">🌬 {m['w_dir_visu']}kt</div>
-                </div>
-                <div class="data-item">
-                    <div class="label">Temp / Rosée</div>
-                    <div class="value">🌡 {m['temp_visu']}° / {m['dew_visu']}°</div>
-                </div>
-                <div class="data-item">
-                    <div class="label">QNH</div>
-                    <div class="value">💎 {m['qnh']} hPa</div>
-                </div>
+                <div class="data-item"><div class="label">Heure (UTC)</div><div class="value">⌚ {m['heure_metar']}Z</div></div>
+                <div class="data-item"><div class="label">Vent</div><div class="value">🌬 {m['w_dir_visu']}kt</div></div>
+                <div class="data-item"><div class="label">Temp / Rosée</div><div class="value">🌡 {m['temp_visu']}° / {m['dew_visu']}°</div></div>
+                <div class="data-item"><div class="label">QNH</div><div class="value">💎 {m['qnh']} hPa</div></div>
             </div>
             <div class="alert-section">
                 {html_remarques}
@@ -273,16 +218,12 @@ async def executer_veille():
             </div>
             <div class="audio-container">
                 <span class="audio-label">🔊 Écouter l'ATIS</span>
-                <audio controls>
-                    <source src="atis.mp3?v={ts}" type="audio/mpeg">
-                </audio>
+                <audio controls><source src=\"atis.mp3?v={ts}\" type=\"audio/mpeg\"></audio>
             </div>
             <button id="force-refresh" class="btn-refresh">🔄 Actualiser les données</button>
             <div class="update-info">🕐 Données: {date_generation_courte}</div>
             <div style="font-size:.75em;color:rgba(255,255,255,.6);margin-top:8px;text-align:center">ℹ️ Prochaine mise à jour: {prochaine}Z</div>
-            <div class="disclaimer">
-                <strong>⚠️ Avertissement:</strong> Les informations affichées sont indicatives et calculées à partir de sources publiques (moyennes LFBH/LFRI). <strong>Le Club ULM Luçonnais ne garantit pas l'exactitude de ces données.</strong> Seules les informations officielles publiées par les autorités aéronautiques compétentes (SIA, Météo France, etc.) font foi. Il est impératif de consulter les sources officielles avant tout vol.
-            </div>
+            <div class="disclaimer"><strong>⚠️ Avertissement:</strong> Les informations affichées sont indicatives et calculées à partir de sources publiques (moyennes LFBH/LFRI). <strong>Le Club ULM Luçonnais ne garantit pas l'exactitude de ces données.</strong> Seules les informations officielles publiées par les autorités aéronautiques compétentes (SIA, Météo France, etc.) font foi. Il est impératif de consulter les sources officielles avant tout vol.</div>
         </div>
         <script>
             document.getElementById('force-refresh').addEventListener('click', function() {{
@@ -291,8 +232,7 @@ async def executer_veille():
         </script>
     </body>
     </html>"""
-    with open("index.html", "w", encoding="utf-8") as f:
-        f.write(html)
+    with open("index.html", "w", encoding="utf-8") as f: f.write(html)
 
 if __name__ == "__main__":
     asyncio.run(executer_veille())
