@@ -1,10 +1,5 @@
 name: Update ATIS (Météo 10 min)
 
-# Même groupe que le NOTAM pour qu'ils se laissent passer l'un l'autre
-concurrency:
-  group: git-sync
-  cancel-in-progress: false
-
 on:
   schedule:
     - cron: '*/10 * * * *'
@@ -38,18 +33,10 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          
-          # On ajoute les fichiers clés
-          git add index.html atis.mp3 notam_cache.json 2>/dev/null || true
-          
-          # On ne commit que s'il y a un changement réel
-          if ! git diff --quiet --staged; then
-            git commit -m "🔄 ATIS update (Météo 10min)"
-            
-            # Boucle de tentative pour gérer les collisions de dernière seconde
-            for i in {1..5}; do
-              git pull --rebase origin main && git push && break || sleep 5
-            done
-          else
-            echo "Pas de changement météo significatif, arrêt propre."
-          fi
+          # On ajoute tout le contenu modifié
+          git add .
+          # On commit seulement s'il y a des changements
+          git diff --quiet && git diff --staged --quiet || git commit -m "🔄 ATIS update auto"
+          # Sécurité : on récupère les éventuelles modifs distantes avant de pousser
+          git pull --rebase origin main
+          git push origin main
