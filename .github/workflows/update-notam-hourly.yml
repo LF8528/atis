@@ -29,13 +29,6 @@ jobs:
           ATIS_REMARQUES: ${{ secrets.ATIS_REMARQUES }}
           FORCE_NOTAM_REFRESH: "1"
         run: python script.py
-      
-      - name: Upload debug SIA
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: sia-debug
-          path: sia_debug.html
 
       - name: Commit and Push
         run: |
