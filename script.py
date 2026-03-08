@@ -97,11 +97,12 @@ def scanner_notams(force_refresh=False):
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=15)
         if res.status_code == 200:
-            with open("sia_debug.html", "w", encoding="utf-8") as f:
-                f.write(res.text)
-            # Capture de la date d'activité APRÈS la référence R 147 (pas la date de publication)
+            # --- DEBUG TEMPORAIRE ---
+            with open("sia_debug.html", "w", encoding="utf-8") as dbg: dbg.write(res.text)
+            # --- FIN DEBUG ---
+            # Capture de la date spécifiquement liée à la ligne R 147
             match_r147 = re.search(
-                r'R\s*147.*?(\d{2})/(\d{2})/(\d{4}).*?(?:(\d{1,2})[h:]?(\d{2})[^\d]*(?:à|to|-)[^\d]*(\d{1,2})[h:]?(\d{2}))',
+                r'(\d{2})/(\d{2})/(\d{4}).*?R\s*147.*?(?:(\d{1,2})[h:]?(\d{2})[^\d]*(?:à|to|-)[^\d]*(\d{1,2})[h:]?(\d{2}))',
                 res.text, re.IGNORECASE | re.DOTALL
             )
             if match_r147:
@@ -132,20 +133,21 @@ async def executer_veille():
     force_refresh = os.getenv("FORCE_NOTAM_REFRESH", "0") == "1"
     notams = scanner_notams(force_refresh=force_refresh)
     if not m: return
+    
     maintenant = datetime.now(timezone.utc)
     date_generation_courte = maintenant.strftime("%d/%m %H:%M")
     
-    # --- MODIFICATION CAS 00h00Z ---
     notam_r147_actif = False
     if notams['R147']['date'] and notams['R147']['annee']:
         try:
             jour, mois = notams['R147']['date'].split("/")
             date_notam = datetime(int(notams['R147']['annee']), int(mois), int(jour), tzinfo=timezone.utc)
             match_heure_fin = re.search(r'-(\d{2})h(\d{2})Z', notams['R147']['info'])
+            
             if match_heure_fin:
                 h_fin = int(match_heure_fin.group(1))
                 m_fin = int(match_heure_fin.group(2))
-                # Si 00h00, on considère la fin à 23:59:59 du même jour
+                
                 if h_fin == 0 and m_fin == 0:
                     date_notam_fin = date_notam.replace(hour=23, minute=59, second=59)
                 else:
@@ -159,15 +161,12 @@ async def executer_veille():
                 notam_r147_actif = True
         except: notam_r147_actif = "active" in notams['R147']['info'].lower()
     else: notam_r147_actif = "active" in notams['R147']['info'].lower()
-    # --- FIN DE MODIFICATION ---
 
     remarques_raw = os.getenv("ATIS_REMARQUES", "Piste en herbe 08/26 fermée :: Grass runway 08/26 closed")
     partie_fr, partie_en = remarques_raw.split("::") if "::" in remarques_raw else (remarques_raw, "Caution")
     liste_fr = [r.strip() for r in partie_fr.split("|")]
     liste_en = [r.strip() for r in partie_en.split("|")]
     html_remarques = "".join([f'<div class="alert-line">⚠️ {r}</div>' for r in liste_fr])
-    audio_remarques_fr = ". ".join(liste_fr) + "."
-    audio_remarques_en = ". ".join(liste_en) + "."
     
     notam_audio_fr = ""
     if notam_r147_actif:
@@ -176,7 +175,7 @@ async def executer_veille():
             h1,m1,h2,m2 = match_h.groups()
             notam_audio_fr = f"Zone R 147 : active le {notams['R147']['date']} de {int(h1)} heures{(' '+str(int(m1))) if int(m1)>0 else ''} à {int(h2)} heures{(' '+str(int(m2))) if int(m2)>0 else ''} UTC."
 
-    txt_fr = f"Luçon les Guifettes, observation de {m['heure_metar'].replace(':',' heures ')} UTC. {m['w_audio_fr']}. Température {m['t_audio_fr']} degrés. Point de rosée {m['d_audio_fr']} degrés. Q N H {m['q_audio_fr']} hectopascals. {audio_remarques_fr} {notam_audio_fr}"
+    txt_fr = f"Atlantic Air Park, observation de {m['heure_metar'].replace(':',' heures ')} UTC. {m['w_audio_fr']}. Température {m['t_audio_fr']} degrés. Point de rosée {m['d_audio_fr']} degrés. Q N H {m['q_audio_fr']} hectopascals. {'. '.join(liste_fr)}. {notam_audio_fr}"
     
     notam_audio_en = ""
     if notam_r147_actif:
@@ -185,7 +184,7 @@ async def executer_veille():
             h1,m1,h2,m2 = match_h.groups()
             notam_audio_en = f"Military zone R 147: active on {notams['R147']['date'].replace('/',' ')} from {int(h1)}{(' '+str(int(m1))) if int(m1)>0 else ''} to {int(h2)}{(' '+str(int(m2))) if int(m2)>0 else ''} UTC."
 
-    txt_en = f"Lusson  lay  Guifettes  observation at {m['heure_metar'].replace(':',' ')} UTC. {m['w_audio_en']}. Temperature {m['t_audio_en']} degrees. Dew point {m['d_audio_en']} degrees. Q N H {m['q_audio_en']} hectopascals. {audio_remarques_en} {notam_audio_en}"
+    txt_en = f"Atlantic Air Park observation at {m['heure_metar'].replace(':',' ')} UTC. {m['w_audio_en']}. Temperature {m['t_audio_en']} degrees. Dew point {m['d_audio_en']} degrees. Q N H {m['q_audio_en']} hectopascals. {'. '.join(liste_en)}. {notam_audio_en}"
     
     await generer_audio(txt_fr, txt_en)
     ts = int(time.time())
@@ -196,10 +195,7 @@ async def executer_veille():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-        <meta http-equiv="Pragma" content="no-cache">
-        <meta http-equiv="Expires" content="0">
-        <title>ATIS LF8528</title>
+        <title>ATIS LF8523</title>
         <link rel="manifest" href="manifest.json">
         <style>
             *{{box-sizing:border-box}}body{{font-family:-apple-system,sans-serif;padding:2.5vh 2.5vw;background:linear-gradient(135deg,#2c5f7c,#4a90b8,#6bb6d6);color:#e0e0e0;min-height:100vh;margin:0}}.container{{width:95%;margin:0 auto}}h1{{color:#fff;margin:0 0 8px 0;font-size:2em;font-weight:700;text-align:center}}.subtitle{{color:#fff;font-weight:600;margin-bottom:30px;text-transform:uppercase;letter-spacing:2px;font-size:.85em;text-align:center;opacity:.9}}.data-grid{{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:25px}}.data-item{{background:rgba(20,60,90,.6);padding:18px;border-radius:12px;border:1px solid rgba(100,180,220,.3);transition:all .3s;backdrop-filter:blur(5px)}}.data-item:hover{{background:rgba(20,60,90,.75);transform:translateY(-2px)}}.label{{font-size:.7em;color:rgba(255,255,255,.7);text-transform:uppercase;font-weight:600}}.value{{font-size:1.3em;font-weight:700;color:#fff;margin-top:8px}}.alert-section{{text-align:left;background:rgba(20,60,90,.5);border-left:4px solid #ff9800;padding:18px;margin-bottom:25px;border-radius:8px}}.alert-line{{color:#ffb74d;font-weight:600;font-size:.9em;margin-bottom:10px}}.zone-date{{display:inline-block;background:rgba(255,183,77,.25);padding:3px 10px;border-radius:6px;margin-left:8px;color:#ffd54f;font-weight:700;border:1px solid rgba(255,183,77,.4)}}.audio-container{{background:rgba(20,60,90,.6);padding:15px;border-radius:12px;margin:20px 0;border:2px solid rgba(100,180,220,.4)}}.audio-label{{font-size:.85em;color:#fff;font-weight:700;text-transform:uppercase;margin-bottom:10px;display:block}}audio{{width:100%;filter:invert(90%) hue-rotate(180deg);border-radius:8px;height:40px}}.btn-refresh{{background:rgba(20,60,90,.7);color:#fff;border:2px solid rgba(100,180,220,.5);padding:14px 24px;border-radius:10px;cursor:pointer;margin-top:20px;font-size:.95em;font-weight:700;width:100%;text-transform:uppercase}}.btn-refresh:hover{{background:rgba(20,60,90,.85);transform:translateY(-2px)}}.update-info{{font-size:.9em;color:#fff;margin-top:12px;font-weight:600;background:rgba(20,60,90,.5);padding:8px 12px;border-radius:8px;text-align:center}}.disclaimer{{font-size:.7em;color:rgba(255,255,255,.8);margin-top:30px;line-height:1.6;text-align:left;background:rgba(20,60,90,.4);padding:15px;border-radius:8px;border-left:3px solid #ff9800}}.disclaimer strong{{color:#fff;font-weight:700}}
@@ -207,8 +203,8 @@ async def executer_veille():
     </head>
     <body>
         <div class="container">
-            <h1>ATIS LF8528</h1>
-            <div class="subtitle">Luçon les Guifettes</div>
+            <h1>ATIS LF8523</h1>
+            <div class="subtitle">Atlantic Air Park</div>
             <div class="data-grid">
                 <div class="data-item"><div class="label">Heure (UTC)</div><div class="value">⌚ {m['heure_metar']}Z</div></div>
                 <div class="data-item"><div class="label">Vent</div><div class="value">🌬 {m['w_dir_visu']}kt</div></div>
@@ -221,12 +217,12 @@ async def executer_veille():
             </div>
             <div class="audio-container">
                 <span class="audio-label">🔊 Écouter l'ATIS</span>
-                <audio controls><source src=\"atis.mp3?v={ts}\" type=\"audio/mpeg\"></audio>
+                <audio controls><source src="atis.mp3?v={ts}" type="audio/mpeg"></audio>
             </div>
             <button id="force-refresh" class="btn-refresh">🔄 Actualiser les données</button>
             <div class="update-info">🕐 Données: {date_generation_courte}</div>
             <div style="font-size:.75em;color:rgba(255,255,255,.6);margin-top:8px;text-align:center">ℹ️ Prochaine mise à jour: {prochaine}Z</div>
-            <div class="disclaimer"><strong>⚠️ Avertissement:</strong> Les informations affichées sont indicatives et calculées à partir de sources publiques (moyennes LFBH/LFRI). <strong>Le Club ULM Luçonnais ne garantit pas l'exactitude de ces données.</strong> Seules les informations officielles publiées par les autorités aéronautiques compétentes (SIA, Météo France, etc.) font foi. Il est impératif de consulter les sources officielles avant tout vol.</div>
+            <div class="disclaimer"><strong>⚠️ Avertissement:</strong> Informations indicatives. Seules les sources officielles (SIA, Météo France) font foi.</div>
         </div>
         <script>
             document.getElementById('force-refresh').addEventListener('click', function() {{
