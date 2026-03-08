@@ -97,6 +97,8 @@ def scanner_notams(force_refresh=False):
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=15)
         if res.status_code == 200:
+            with open("sia_debug.html", "w", encoding="utf-8") as f:
+                f.write(res.text)
             # Capture de la date d'activité APRÈS la référence R 147 (pas la date de publication)
             match_r147 = re.search(
                 r'R\s*147.*?(\d{2})/(\d{2})/(\d{4}).*?(?:(\d{1,2})[h:]?(\d{2})[^\d]*(?:à|to|-)[^\d]*(\d{1,2})[h:]?(\d{2}))',
