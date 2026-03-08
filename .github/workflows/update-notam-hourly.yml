@@ -22,7 +22,6 @@ jobs:
           python-version: '3.9'
       
       - name: Install dependencies
-        run: pip install requests edge-tts
         run: pip install requests edge-tts beautifulsoup4
       
       - name: Force NOTAM refresh
